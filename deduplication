@@ -10,7 +10,7 @@ DeDuplicationHash=""
 #日志文件，为空则为和脚本同目录下的同名 .log 文件
 DeDuplicationLog="/tmp/deduplication.log"
 #查重报告发送命令
-PushCMD="dingtalk"
+PushCMD="dingtalkrobot"
 #文件查重配置参数结束
 
 
