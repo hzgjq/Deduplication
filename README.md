@@ -1,4 +1,4 @@
-# deduplication  
+# Deduplication  
 Linux下对指定文件夹进行文件查重的bash脚本，还可以对找到的重复文件进行硬链接以节约存储空间，配合dingtalkrobot脚本还可以将运行结果发送到钉钉。  
   
 # 重要提醒
