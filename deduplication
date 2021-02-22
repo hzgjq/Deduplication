@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+
+#文件查重配置参数开始
+#备份文件夹名，为空则不会自动清理重复文件
+DeDuplicationBackup=""
+#查重文件夹列表，为空则为和脚本同目录下的同名 .list 文件
+DeDuplicationList=""
+#摘要快照文件，为空则为和脚本同目录下的同名 .cache 文件
+DeDuplicationHash=""
+#日志文件，为空则为和脚本同目录下的同名 .log 文件
+DeDuplicationLog="/tmp/deduplication.log"
+#查重报告发送命令
+PushCMD="dingtalk"
+#文件查重配置参数结束
+
+
+ScriptDir="$(dirname "$(readlink -nf "$0")")"
+[[ -z "${DeDuplicationList}" ]] && DeDuplicationList="${0##*/}.list"
+[[ -z "${DeDuplicationHash}" ]] && DeDuplicationHash="${0##*/}.cache"
+[[ -z "${DeDuplicationLog}" ]] && DeDuplicationLog="${0##*/}.log"
+
+[[ ${DeDuplicationList:0:1} != "/" ]] && DeDuplicationList="${ScriptDir}/${DeDuplicationList}"
+[[ ${DeDuplicationHash:0:1} != "/" ]] && DeDuplicationHash="${ScriptDir}/${DeDuplicationHash}"
+[[ ${DeDuplicationLog:0:1} != "/" ]] && DeDuplicationLog="${ScriptDir}/${DeDuplicationLog}"
+[[ ${PushCMD:0:1} != "/" ]] && PushCMD="${ScriptDir}/${PushCMD}"
+
+if [[ -n "${DeDuplicationList}" ]]; then
+	[[ -r ${DeDuplicationList} ]] && Destination="$(cat "${DeDuplicationList}")" || echo "没有找到查重列表：${DeDuplicationList}\n"
+fi
+
+[[ -e "${DeDuplicationLog}" ]] && rm "${DeDuplicationLog}" 2> /dev/null
+exec 2> "${DeDuplicationLog}"
+
+MD5Hash=()
+Progress=("|" "/" "-" "\\\\")
+Directorys=""
+
+for Directory in "${@}"
+do
+  Directorys="${Directorys}${Directory}\n"
+done
+[[ -z "${Directorys}" ]] && Directorys="${Destination}"
+
+function _red() { echo "\033[1;31m${1}\033[0m"; }
+function _green() { echo "\033[1;32m${1}\033[0m"; }
+function _yellow() { echo "\033[1;33m${1}\033[0m"; }
+function _blue() { echo "\033[1;34m${1}\033[0m"; }
+function _purple() { echo "\033[1;35m${1}\033[0m"; }
+function _cyan() { echo "\033[1;36m${1}\033[0m"; }
+function _white() { echo "\033[1;37m${1}\033[0m"; }
+
+function show () {
+  Information="${*}"
+  echo -en "${Information/%\\n/}\033[K\033[0m"
+  [[ "${Information:0-2:2}" == "\n" ]] && echo
+}
+
+function checksum () {
+  MD5Count="$[${MD5Count} + 1]"
+  MD5CheckSum="${MD5Hash[$2]}"
+  [[ "${MD5CheckSum}" == *",$3,"* ]] && MD5CheckSum="${MD5CheckSum##*,}" || MD5CheckSum=""
+  show "\r[\033[1C$(_white "${MD5Count}")] 对文件节点 ${2} 进行散列摘要..."
+  if [[ -z "${MD5CheckSum}" ]]; then
+    MD5CheckSum="$(md5sum -b "${4}" | cut -d ' ' -f 1)"
+    MD5Hash[$2]="${2},${3},${MD5CheckSum}"
+    show "\033[3D完成:${MD5CheckSum}."
+  else
+    show "\033[3D，快照:${MD5CheckSum}."
+  fi
+  CheckItem="${CheckItem}${1}\t${MD5CheckSum}\t${2}\t${4}\n"
+}
+
+OLD_IFS=${IFS}
+IFS=$'\n'
+StartSeconds="$(date +%s)"
+
+show "\033[?25l开始在指定文件夹中查找重复文件...\n"
+show "准备下列文件夹的文件列表...\n"
+FileList=""
+DirectoryList=""
+for Directory in $(echo -en "${Directorys}")
+do
+  [[ "${Directory:0:1}" == "#" ]] && continue
+  [[ ! -d "${Directory}" ]] && show "忽略不存在的文件夹:${Directory}\n" && continue
+  show "$(_white "${Directory}")\n"
+  FileList="${FileList}$(find "${Directory}" -not -empty -type f -printf "%s\t%i\t%T@\t%p\n")\n"
+  DirectoryList="${DirectoryList}${Directory}\n"
+done
+[[ -z "${FileList}" ]] && show "文件列表是空的，没有必要进行查重\n" && exit
+
+show "分析文件列表..."
+SortList="$(echo -en "${FileList}" | sort -nk1 -nk2)" && show "$(_green "\033[3D成功")\n" || show "$(_red "\033[3D失败")\n" 
+
+if [[ -r "${DeDuplicationHash}" ]]; then
+  show "载入摘要快照..."
+  for line in $(cat "${DeDuplicationHash}")
+  do
+    MD5Hash[${line%%,*}]="${line}"
+  done
+  if [[ -z "${#MD5Hash[@]}" ]]; then
+    show "$(_red "\033[3D失败")\n"
+  else
+    show "$(_green "\033[3D成功")\n载入了[$(_white "${#MD5Hash[@]}")]条摘要快照，这将加快散列摘要的速度。\n"
+  fi
+fi
+
+show "$(_white "散列摘要耗时较长，请耐心等待。")\n"
+show "正在进行散列摘要...\n"
+MD5Count="0"
+Backuped="0"
+BAKCount="0"
+LNKCount="0"
+FBKCount="0"
+FLNCount="0"
+Totalize="0"
+PriorSize=""
+PriorInode=""
+PriorFile=""
+MD5CheckSum=""
+FileList=""
+for line in ${SortList}
+do
+  CurrentSize="$(echo "${line}" | cut -f 1)"
+  CurrentInode="$(echo "${line}" | cut -f 2)"
+  Modification="$(echo "${line}" | cut -f 3)"
+  CurrentFile="$(echo "${line}" | cut -f 4-)"
+  Folder="${CurrentFile%/*}"
+  [[ "${Folder##*/}" == "${DeDuplicationBackup}" ]] && show "\r忽略备份文件: ${CurrentFile##*/}" && continue
+  show "\033[s\r\033[1C$(_green "${Progress[$((${Totalize} % 4))]}")\t\033[u"
+  Totalize="$[${Totalize} + 1]"
+  CheckItem=""
+  if [[ "${CurrentSize}" -ne "${PriorSize}" ]]; then
+    MD5CheckSum=""
+  elif [[ "${CurrentInode}" -eq "${PriorInode}" ]]; then
+    CheckItem="${CurrentSize}\t${MD5CheckSum}\t${CurrentInode}\t${CurrentFile}\n"
+  else
+    [[ -z "${MD5CheckSum}" ]] && checksum ${PriorSize} ${PriorInode} ${Modification} ${PriorFile}
+    checksum ${CurrentSize} ${CurrentInode} ${Modification} ${CurrentFile}
+  fi
+  FileList="${FileList}${CheckItem}"
+  PriorSize="${CurrentSize}"
+  PriorInode="${CurrentInode}"
+  PriorFile="${CurrentFile}"
+done
+
+for item in ${MD5Hash[@]};do
+  MD5List="${MD5List}${item}\n"
+done
+if [[ -n "${MD5List}" ]]; then
+  show "\r保存摘要快照..."
+  echo -en "${MD5List}" | sort -t',' -nk1 -nk2 -u -o "${DeDuplicationHash}" && show "$(_green "\033[3D成功")\n" || show "$(_red "\033[3D失败")\n" 
+fi
+
+[[ -n "${DeDuplicationBackup}" ]] && show "\r正在处理重复文件...\n" || show "\r正在查找重复文件...\n"
+PriorSignatures=""
+PriorInode=""
+PriorFile=""
+BackupList=""
+FailList=""
+DuplicateLine=""
+Duplication=""
+Identical="0"
+for line in $(echo -en "${FileList}" | sort -nk1 -nk2 -k3)
+do
+  CurrentSignatures="$(echo "${line}" | cut -f 1-2)"
+  CurrentInode="$(echo "${line}" | cut -f 3)"
+  CurrentFile="$(echo "${line}" | cut -f 4-)"
+  if [[ "${CurrentSignatures}" != "${PriorSignatures}" ]]; then
+    PriorSignatures="${CurrentSignatures}"
+    PriorInode="${CurrentInode}"
+    PriorFile="${CurrentFile}"
+    DuplicateLine="${SplitLine}\n${CurrentFile}\n"
+  elif [[ "${CurrentInode}" != "${PriorInode}" ]]; then
+    Identical="$[${Identical} + 1]"
+    if [[ -z "${DeDuplicationBackup}" ]]; then
+      show "${DuplicateLine}${CurrentFile}\n"
+      Duplication="${Duplication}${DuplicateLine}${CurrentFile}\n"
+      DuplicateLine=""
+      continue
+    fi
+    show "重复的文件 ${CurrentFile}\n"
+    Folder="${CurrentFile%/*}/${DeDuplicationBackup}"
+    [[ -d "${Folder}" ]] || mkdir "${Folder}"
+    show "备份文件到 -> ${Folder}/\n"
+    mv "${CurrentFile}" "${Folder}/" && Status="T" || Status="F"
+    if [[ "${Status}" == "T" ]]; then
+      BackupList="${BackupList}${Folder}/${CurrentFile##*/}\n"
+      BAKCount="$[${BAKCount} + 1]"
+    else
+      FailList="备份失败: ${CurrentFile}\n"
+      FBKCount="$[${FBKCount} + 1]"
+      continue
+    fi
+    show "硬链接来源 <- ${PriorFile}\n"
+    cp -dl "${PriorFile}" "${CurrentFile}" && Status="T" || Status="F"
+    if [[ "${Status}" == "T" ]]; then
+      LNKCount="$[${LNKCount} + 1]"
+    else
+      FailList="链接失败: ${CurrentFile}\n"
+      FLNCount="$[${FLNCount} + 1]"
+    fi
+  fi
+done
+
+show "\r正在统计查重结果...\n"
+if [[ "${Identical}" -eq "0" ]]; then
+  show "$(_white "没有找到重复文件")\n"
+elif [[ -z "${DeDuplicationBackup}" ]]; then
+  show "$(_white "已找到的重复文件:")\n${Duplication}"
+  echo -en "已找到的重复文件：\n${Duplication}" >> ${DeDuplicationLog}
+else
+  if [[ -n "${BackupList}" ]]; then
+    show "$(_white "已备份的重复文件:")\n$(echo -en "${BackupList}" | sort)\n"
+    show "可以使用下面的命令删除备份文件。\033[1;41;37m删除后将无法恢复，请小心操作！\033[0m\n"
+    for Directory in $(echo -en "${DirectoryList}")
+    do
+      [[ ! -d "${Directory}" ]] && continue
+      show "$(_white "find \"${Directory}\" -path \"*/${DeDuplicationBackup}\" -name \"*\" -ok rm -r {} \\;")\n"
+    done
+  fi
+  [[ -n "${FailList}" ]] && show "$(_white "清理失败的重复文件:")\n$(echo -en "${FailList}" | sort)\n"
+fi
+
+IFS=${OLD_IFS}
+EndSeconds="$(date +%s)"
+ElapsedSeconds="$((EndSeconds-StartSeconds))"
+ElapsedTime=""
+for T in 60秒 60分 24小时
+do
+  ElapsedTime="$((ElapsedSeconds % ${T:0:2}))${T:2}${ElapsedTime}"
+  ElapsedSeconds="$((ElapsedSeconds / ${T:0:2}))"
+  [[ ${ElapsedSeconds} -eq 0 ]] && break
+done
+[[ ${ElapsedSeconds} -gt 0 ]] && ElapsedTime="${ElapsedSeconds}天${ElapsedTime}"
+
+show "\n指定文件夹中的重复文件已清理完毕！耗时:$(_white "${ElapsedTime}")。\n"
+show "对总计[$(_white "${Totalize}")]个文件中的[$(_white "${MD5Count}")]个疑似重复文件进行了散列摘要。\n"
+show "检测到[$(_white "${Identical}")]个文件可使用硬连接来节省磁盘空间。\n\033[?25h"
+
+if [[ "${Identical}" -eq "0" ]]; then
+  Overview="<font color='#009900'>没有找到重复文件</font>"
+  Details="耗时${ElapsedTime}在指定文件夹中没有找到重复文件。\n"
+elif [[ -z "${DeDuplicationBackup}" ]]; then
+  show "重复列表已追加到日志文件:$(_white "${DeDuplicationLog}")。\n"
+  Overview="<font color='#009900'>重复文件已查找完毕</font>"
+  Details="耗时${ElapsedTime}在指定文件夹中找到${Identical}个重复文件，详见控制台或日志文件。\n"
+else
+  show "已备份[$(_cyan "${BAKCount}")]个，备份失败[$(_yellow "${FBKCount}")]个(源文件未作改变)。\n"
+  show "已链接[$(_green "${LNKCount}")\033[0m]个，链接失败[$(_red "${FLNCount}")]个(源文件已移至备份文件夹)。\n"
+  Details="耗时${ElapsedTime}在指定文件夹中对总计[${Totalize}]个文件中的[${MD5Count}]个疑似重复文件进行了散列摘要。"
+  Details="${Details}\n    检测到[${Identical}]个文件可使用硬连接来节省磁盘空间。"
+  Details="${Details}\n    已备份[${BAKCount}]个，备份失败[${FBKCount}]个(源文件未作改变)。"
+  Details="${Details}\n    已链接[${LNKCount}]个，链接失败[${FLNCount}]个(源文件已移至备份文件夹)。"
+  if [[ -z "${FailList}" ]];then
+    Overview="<font color='#009900'>重复文件已成功清理</font>"
+  else
+    Overview="<font color='#CC0000'>部分重复文件未能清理</font>"
+    Details="${Details}\n    清理失败的重复文件详见控制台或日志文件。"
+  fi
+fi
+
+[[ -z "${PushCMD}" ]] && exit
+MK_title="主机$(hostname)的文件查重"
+MK_text="<font color='#0000CC'>$(date +"%F %T")</font>\n\n"
+MK_text="${MK_text}来自主机<font color='#009900'>$(hostname)</font>的文件查重报告\n"
+MK_text="${MK_text}## ${Overview}\n\n详细信息：\n\n    ${Details}"
+Message_Data="{\"msgtype\":\"markdown\",\"markdown\":{\"title\":\"${MK_title}\",\"text\":\"${MK_text}\"}}"
+"${PushCMD}" -q  "${Message_Data}" && echo "文件查重报告推送成功" || echo "文件查重报告推送失败"
