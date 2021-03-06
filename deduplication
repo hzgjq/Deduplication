@@ -59,7 +59,7 @@ function conversion () {
     Remainder="$(( ${Integer} % 1024 * $model / 1024 ))"
     Integer="$(( ${Integer} / 1024 ))"
   done
-  echo "$(printf "%.${2}g ${Unit}" "${Integer}.${Remainder}")"
+  echo "$(printf "%g ${Unit}" "${Integer}.${Remainder}")"
 }
 
 function show () {
@@ -260,7 +260,7 @@ elif [[ -z "${DeDuplicationBackup}" ]]; then
   Overview="<font color='#009900'>重复文件已查找完毕</font>"
   Details="耗时${ElapsedTime}在指定文件夹中找到${Identical}个重复文件，详见控制台或日志文件。\n"
 else
-  SpaceSaving="$(conversion "SpaceSaving")"
+  SpaceSaving="$(conversion "SpaceSaving" "3")"
   show "已备份[$(_cyan "${BAKCount}")]个，备份失败[$(_yellow "${FBKCount}")]个(源文件未作改变)。\n"
   show "已链接[$(_green "${LNKCount}")\033[0m]个，链接失败[$(_red "${FLNCount}")]个(源文件已移至备份文件夹)。\n"
   show "共为您节约了 $(_white "${SpaceSaving}")\033[0m字节的存储空间。\n"
