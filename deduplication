@@ -49,6 +49,19 @@ function _purple() { echo "\033[1;35m${1}\033[0m"; }
 function _cyan() { echo "\033[1;36m${1}\033[0m"; }
 function _white() { echo "\033[1;37m${1}\033[0m"; }
 
+function conversion () {
+  model="1$(printf "%0${2}d\n" "0")"
+  Integer="${1}"
+  Remainder=""
+
+  for Unit in "" "千" "兆" "吉" "太"; do
+    [[ "${Integer}" -lt 1024 ]] && break
+    Remainder="$(( ${Integer} % 1024 * $model / 1024 ))"
+    Integer="$(( ${Integer} / 1024 ))"
+  done
+  echo "$(printf "%.${2}g ${Unit}" "${Integer}.${Remainder}")"
+}
+
 function show () {
   Information="${*}"
   echo -en "${Information/%\\n/}\033[K\033[0m"
@@ -59,7 +72,7 @@ function checksum () {
   MD5Count="$[${MD5Count} + 1]"
   MD5CheckSum="${MD5Hash[$2]}"
   [[ "${MD5CheckSum}" == *",$3,"* ]] && MD5CheckSum="${MD5CheckSum##*,}" || MD5CheckSum=""
-  show "\r[\033[1C$(_white "${MD5Count}")] 对文件节点 ${2} 进行散列摘要..."
+  show "\r\033[1C[$(_white "${MD5Count}")] 对文件节点 ${2} 进行散列摘要..."
   if [[ -z "${MD5CheckSum}" ]]; then
     MD5CheckSum="$(md5sum -b "${4}" | cut -d ' ' -f 1)"
     MD5Hash[$2]="${2},${3},${MD5CheckSum}"
@@ -126,7 +139,7 @@ do
   CurrentFile="$(echo "${line}" | cut -f 4-)"
   Folder="${CurrentFile%/*}"
   [[ "${Folder##*/}" == "${DeDuplicationBackup}" ]] && show "\r忽略备份文件: ${CurrentFile##*/}" && continue
-  show "\033[s\r\033[1C$(_green "${Progress[$((${Totalize} % 4))]}")\t\033[u"
+  show "\033[s\r$(_green "${Progress[$((${Totalize} % 4))]}")\t\033[u"
   Totalize="$[${Totalize} + 1]"
   CheckItem=""
   if [[ "${CurrentSize}" -ne "${PriorSize}" ]]; then
@@ -162,6 +175,7 @@ Duplication=""
 Identical="0"
 for line in $(echo -en "${FileList}" | sort -nk1 -nk2 -k3)
 do
+  CurrentSize="$(echo "${line}" | cut -f 1)"
   CurrentSignatures="$(echo "${line}" | cut -f 1-2)"
   CurrentInode="$(echo "${line}" | cut -f 3)"
   CurrentFile="$(echo "${line}" | cut -f 4-)"
@@ -195,6 +209,7 @@ do
     cp -dl "${PriorFile}" "${CurrentFile}" && Status="T" || Status="F"
     if [[ "${Status}" == "T" ]]; then
       LNKCount="$[${LNKCount} + 1]"
+      SpaceSaving="$[${SpaceSaving} + ${CurrentSize}]"
     else
       FailList="链接失败: ${CurrentFile}\n"
       FLNCount="$[${FLNCount} + 1]"
@@ -245,12 +260,15 @@ elif [[ -z "${DeDuplicationBackup}" ]]; then
   Overview="<font color='#009900'>重复文件已查找完毕</font>"
   Details="耗时${ElapsedTime}在指定文件夹中找到${Identical}个重复文件，详见控制台或日志文件。\n"
 else
+  SpaceSaving="$(conversion "SpaceSaving")"
   show "已备份[$(_cyan "${BAKCount}")]个，备份失败[$(_yellow "${FBKCount}")]个(源文件未作改变)。\n"
   show "已链接[$(_green "${LNKCount}")\033[0m]个，链接失败[$(_red "${FLNCount}")]个(源文件已移至备份文件夹)。\n"
+  show "共为您节约了 $(_white "${SpaceSaving}")\033[0m字节的存储空间。\n"
   Details="耗时${ElapsedTime}在指定文件夹中对总计[${Totalize}]个文件中的[${MD5Count}]个疑似重复文件进行了散列摘要。"
   Details="${Details}\n    检测到[${Identical}]个文件可使用硬连接来节省磁盘空间。"
   Details="${Details}\n    已备份[${BAKCount}]个，备份失败[${FBKCount}]个(源文件未作改变)。"
   Details="${Details}\n    已链接[${LNKCount}]个，链接失败[${FLNCount}]个(源文件已移至备份文件夹)。"
+  Details="${Details}\n    共为您节约了${SpaceSaving}字节的存储空间。"
   if [[ -z "${FailList}" ]];then
     Overview="<font color='#009900'>重复文件已成功清理</font>"
   else
