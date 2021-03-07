@@ -8,7 +8,7 @@ DeDuplicationList=""
 #摘要快照文件，为空则为和脚本同目录下的同名 .cache 文件
 DeDuplicationHash=""
 #日志文件，为空则为和脚本同目录下的同名 .log 文件
-DeDuplicationLog="/tmp/deduplication.log"
+DeDuplicationLog=""
 #查重报告发送命令
 PushCMD="dingtalkrobot"
 #文件查重配置参数结束
@@ -24,8 +24,8 @@ ScriptDir="$(dirname "$(readlink -nf "$0")")"
 [[ ${DeDuplicationLog:0:1} != "/" ]] && DeDuplicationLog="${ScriptDir}/${DeDuplicationLog}"
 [[ ${PushCMD:0:1} != "/" ]] && PushCMD="${ScriptDir}/${PushCMD}"
 
-if [[ -n "${DeDuplicationList}" ]]; then
-	[[ -r ${DeDuplicationList} ]] && Destination="$(cat "${DeDuplicationList}")" || echo "没有找到查重列表：${DeDuplicationList}\n"
+if [[ -z "${*}" ]]; then
+  [[ -r ${DeDuplicationList} ]] && Destination="$(cat "${DeDuplicationList}")" || echo -en "没有找到查重列表：${DeDuplicationList}\n"
 fi
 
 [[ -e "${DeDuplicationLog}" ]] && rm "${DeDuplicationLog}" 2> /dev/null
@@ -59,7 +59,7 @@ function conversion () {
     Remainder="$(( ${Integer} % 1024 * $model / 1024 ))"
     Integer="$(( ${Integer} / 1024 ))"
   done
-  echo "$(printf "%g ${Unit}" "${Integer}.${Remainder}")"
+  echo -en "$(printf "%g${Unit}" "${Integer}.${Remainder}")"
 }
 
 function show () {
@@ -263,7 +263,7 @@ else
   SpaceSaving="$(conversion "SpaceSaving" "3")"
   show "已备份[$(_cyan "${BAKCount}")]个，备份失败[$(_yellow "${FBKCount}")]个(源文件未作改变)。\n"
   show "已链接[$(_green "${LNKCount}")\033[0m]个，链接失败[$(_red "${FLNCount}")]个(源文件已移至备份文件夹)。\n"
-  show "共为您节约了 $(_white "${SpaceSaving}")\033[0m字节的存储空间。\n"
+  show "共为您节约了$(_white "${SpaceSaving}字节")\033[0m的存储空间。\n"
   Details="耗时${ElapsedTime}在指定文件夹中对总计[${Totalize}]个文件中的[${MD5Count}]个疑似重复文件进行了散列摘要。"
   Details="${Details}\n    检测到[${Identical}]个文件可使用硬连接来节省磁盘空间。"
   Details="${Details}\n    已备份[${BAKCount}]个，备份失败[${FBKCount}]个(源文件未作改变)。"
