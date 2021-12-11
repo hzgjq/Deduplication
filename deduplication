@@ -35,8 +35,7 @@ MD5Hash=()
 Progress=("|" "/" "-" "\\\\")
 Directorys=""
 
-for Directory in "${@}"
-do
+for Directory in "${@}"; do
   Directorys="${Directorys}${Directory}\n"
 done
 [[ -z "${Directorys}" ]] && Directorys="${Destination}"
@@ -69,11 +68,11 @@ function show () {
 }
 
 function checksum () {
-  MD5Count="$[${MD5Count} + 1]"
   MD5CheckSum="${MD5Hash[$2]}"
-  [[ "${MD5CheckSum}" == *",$3,"* ]] && MD5CheckSum="${MD5CheckSum##*,}" || MD5CheckSum=""
+  [[ "${2},${3}" == "${MD5CheckSum%,*}" ]] && MD5CheckSum="${MD5CheckSum##*,}" || MD5CheckSum=""
   show "\r\033[1C[$(_white "${MD5Count}")] 对文件节点 ${2} 进行散列摘要..."
   if [[ -z "${MD5CheckSum}" ]]; then
+    MD5Count="$[${MD5Count} + 1]"
     MD5CheckSum="$(md5sum -b "${4}" | cut -d ' ' -f 1)"
     MD5Hash[$2]="${2},${3},${MD5CheckSum}"
     show "\033[3D完成:${MD5CheckSum}."
@@ -91,8 +90,7 @@ show "\033[?25l开始在指定文件夹中查找重复文件...\n"
 show "准备下列文件夹的文件列表...\n"
 FileList=""
 DirectoryList=""
-for Directory in $(echo -en "${Directorys}")
-do
+for Directory in $(echo -en "${Directorys}"); do
   [[ "${Directory:0:1}" == "#" ]] && continue
   [[ ! -d "${Directory}" ]] && show "忽略不存在的文件夹:${Directory}\n" && continue
   show "$(_white "${Directory}")\n"
@@ -106,8 +104,7 @@ SortList="$(echo -en "${FileList}" | sort -nk1 -nk2)" && show "$(_green "\033[3D
 
 if [[ -r "${DeDuplicationHash}" ]]; then
   show "载入摘要快照..."
-  for line in $(cat "${DeDuplicationHash}")
-  do
+  for line in $(cat "${DeDuplicationHash}"); do
     MD5Hash[${line%%,*}]="${line}"
   done
   if [[ -z "${#MD5Hash[@]}" ]]; then
@@ -131,8 +128,7 @@ PriorInode=""
 PriorFile=""
 MD5CheckSum=""
 FileList=""
-for line in ${SortList}
-do
+for line in ${SortList}; do
   CurrentSize="$(echo "${line}" | cut -f 1)"
   CurrentInode="$(echo "${line}" | cut -f 2)"
   Modification="$(echo "${line}" | cut -f 3)"
@@ -156,7 +152,7 @@ do
   PriorFile="${CurrentFile}"
 done
 
-for item in ${MD5Hash[@]};do
+for item in ${MD5Hash[@]}; do
   MD5List="${MD5List}${item}\n"
 done
 if [[ -n "${MD5List}" ]]; then
@@ -173,8 +169,8 @@ FailList=""
 DuplicateLine=""
 Duplication=""
 Identical="0"
-for line in $(echo -en "${FileList}" | sort -nk1 -nk2 -k3)
-do
+SpaceSaving="0"
+for line in $(echo -en "${FileList}" | sort -nk1 -nk2 -k3); do
   CurrentSize="$(echo "${line}" | cut -f 1)"
   CurrentSignatures="$(echo "${line}" | cut -f 1-2)"
   CurrentInode="$(echo "${line}" | cut -f 3)"
@@ -227,8 +223,7 @@ else
   if [[ -n "${BackupList}" ]]; then
     show "$(_white "已备份的重复文件:")\n$(echo -en "${BackupList}" | sort)\n"
     show "可以使用下面的命令删除备份文件。\033[1;41;37m删除后将无法恢复，请小心操作！\033[0m\n"
-    for Directory in $(echo -en "${DirectoryList}")
-    do
+    for Directory in $(echo -en "${DirectoryList}"); do
       [[ ! -d "${Directory}" ]] && continue
       show "$(_white "find \"${Directory}\" -path \"*/${DeDuplicationBackup}\" -name \"*\" -ok rm -r {} \\;")\n"
     done
@@ -240,8 +235,7 @@ IFS=${OLD_IFS}
 EndSeconds="$(date +%s)"
 ElapsedSeconds="$((EndSeconds-StartSeconds))"
 ElapsedTime=""
-for T in 60秒 60分 24小时
-do
+for T in "60秒" "60分" "24小时"; do
   ElapsedTime="$((ElapsedSeconds % ${T:0:2}))${T:2}${ElapsedTime}"
   ElapsedSeconds="$((ElapsedSeconds / ${T:0:2}))"
   [[ ${ElapsedSeconds} -eq 0 ]] && break
@@ -253,11 +247,11 @@ show "对总计[$(_white "${Totalize}")]个文件中的[$(_white "${MD5Count}")]
 show "检测到[$(_white "${Identical}")]个文件可使用硬连接来节省磁盘空间。\n\033[?25h"
 
 if [[ "${Identical}" -eq "0" ]]; then
-  Overview="<font color='#009900'>没有找到重复文件</font>"
+  Overview="${_green}没有找到重复文件</font>"
   Details="耗时${ElapsedTime}在指定文件夹中没有找到重复文件。\n"
 elif [[ -z "${DeDuplicationBackup}" ]]; then
   show "重复列表已追加到日志文件:$(_white "${DeDuplicationLog}")。\n"
-  Overview="<font color='#009900'>重复文件已查找完毕</font>"
+  Overview="${_green}重复文件已查找完毕</font>"
   Details="耗时${ElapsedTime}在指定文件夹中找到${Identical}个重复文件，详见控制台或日志文件。\n"
 else
   SpaceSaving="$(conversion "SpaceSaving" "3")"
@@ -270,17 +264,16 @@ else
   Details="${Details}\n    已链接[${LNKCount}]个，链接失败[${FLNCount}]个(源文件已移至备份文件夹)。"
   Details="${Details}\n    共为您节约了${SpaceSaving}字节的存储空间。"
   if [[ -z "${FailList}" ]];then
-    Overview="<font color='#009900'>重复文件已成功清理</font>"
+    Overview="${_green}重复文件已成功清理</font>"
   else
-    Overview="<font color='#CC0000'>部分重复文件未能清理</font>"
+    Overview="${_red}部分重复文件未能清理</font>"
     Details="${Details}\n    清理失败的重复文件详见控制台或日志文件。"
   fi
 fi
 
-[[ -z "${PushCMD}" ]] && exit
-MK_title="主机$(hostname)的文件查重"
-MK_text="<font color='#0000CC'>$(date +"%F %T")</font>\n\n"
-MK_text="${MK_text}来自主机<font color='#009900'>$(hostname)</font>的文件查重报告\n"
+MK_title="主机${HostName}的文件查重"
+MK_text="${_blue}$(date +"%F %T")</font>\n\n"
+MK_text="${MK_text}来自主机${_green}${HostName}</font>的文件查重报告\n"
 MK_text="${MK_text}## ${Overview}\n\n详细信息：\n\n    ${Details}"
 Message_Data="{\"msgtype\":\"markdown\",\"markdown\":{\"title\":\"${MK_title}\",\"text\":\"${MK_text}\"}}"
 "${PushCMD}" -q  "${Message_Data}" && echo "文件查重报告推送成功" || echo "文件查重报告推送失败"
